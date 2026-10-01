@@ -149,6 +149,10 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid
 #toast{position:fixed;left:50%;bottom:44px;transform:translateX(-50%) translateY(20px);background:var(--panel3);border:1px solid var(--line2);padding:9px 14px;border-radius:9px;opacity:0;pointer-events:none;transition:.2s;z-index:120;font-weight:600}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
+@media (max-width:1600px){
+  #toolSeg button .lbl{display:none}
+  #toolSeg button{padding:0 9px}
+}
 @media (max-width:760px){
   :root{--keys:52px}
   #title{width:120px}
@@ -212,12 +216,12 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid
   <div class="divider"></div>
   <div class="seg part" id="partSeg">
     <button data-part="T" class="on" title="Edit the treble keyboard (Tab)">Treble <small>43–76</small></button>
-    <button data-part="B" title="Edit the bass buttons (Tab)">Bass <small>36–59</small></button>
+    <button data-part="B" title="Edit the bass buttons (Tab)">Bass <small>72 buttons</small></button>
   </div>
   <div class="seg" id="toolSeg">
-    <button data-tool="draw" class="on" title="Draw notes (D)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 13l1-3.5 7-7 2.5 2.5-7 7zM9.5 4l2.5 2.5"/></svg>Draw</button>
-    <button data-tool="select" title="Select and move (S)"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 2l9 6-4 .8 2.3 4.4-1.7.9-2.3-4.4-3.3 2.6z"/></svg>Select</button>
-    <button data-tool="erase" title="Erase (E)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 13.5h7.5M2.8 9.6l6.4-6.4 4 4-6.3 6.3H5.4z"/></svg>Erase</button>
+    <button data-tool="draw" class="on" title="Draw notes (D)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 13l1-3.5 7-7 2.5 2.5-7 7zM9.5 4l2.5 2.5"/></svg><span class="lbl">Draw</span></button>
+    <button data-tool="select" title="Select and move (S)"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 2l9 6-4 .8 2.3 4.4-1.7.9-2.3-4.4-3.3 2.6z"/></svg><span class="lbl">Select</span></button>
+    <button data-tool="erase" title="Erase (E)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 13.5h7.5M2.8 9.6l6.4-6.4 4 4-6.3 6.3H5.4z"/></svg><span class="lbl">Erase</span></button>
   </div>
   <select class="sel" id="gridSel" title="Grid / snap">
     <option value="4">1/1</option><option value="2">1/2</option><option value="1">1/4</option>
@@ -235,7 +239,8 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid
   <button class="btn" id="warn" title="Notes outside the playable range. Click to select them.">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 2l6.5 11.5h-13zM8 6.5v3.2M8 11.6v.2"/></svg><span id="warnText"></span>
   </button>
-  <button class="btn" id="fixBtn" style="display:none" title="Move every red note up or down by whole octaves until it fits">Fit all by octave</button>
+  <button class="btn" id="fixBtn" style="display:none" title="Move every red treble note up or down by whole octaves until it fits">Fit by octave</button>
+  <button class="btn" id="acceptBtn" style="display:none" title="Keep every guessed bass chord as it is">Keep guesses</button>
 </div>
 
 <div id="registers">
@@ -274,7 +279,7 @@ kbd{font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid
 /* =========================================================
    Constants
    ========================================================= */
-const RANGE = { T: [43, 76], B: [36, 59] };
+const RANGE = { T: [43, 76], B: [36, 107] }; // bass "rows" 36-107 = the 72 Stradella buttons
 const PROG_NAMES = ['Bandoneon', 'Bassoon', 'Clarinet', 'Master', 'Musette', 'Bass'];
 const BASS_PROG = 5;
 const SF_URL = 'PadderaltAccordion.sf2';
@@ -292,6 +297,43 @@ const noteName = p => NOTE_NAMES[((p % 12) + 12) % 12] + (Math.floor(p / 12) - 1
 const isBlack = p => [1, 3, 6, 8, 10].includes(((p % 12) + 12) % 12);
 const DYN_MARKS = [['ppp', 16], ['pp', 33], ['p', 49], ['mp', 64], ['mf', 80], ['f', 96], ['ff', 112], ['fff', 127]];
 const dynMark = v => { let best = DYN_MARKS[0]; for (const m of DYN_MARKS) if (Math.abs(m[1] - v) < Math.abs(best[1] - v)) best = m; return best[0]; };
+/* ---- 72-bass Stradella buttons ----
+   A bass-part note's row p (36-107) is a button: kind = floor((p-36)/12), root = (p-36) % 12.
+   kinds: 0 counterbass, 1 bass, 2 major, 3 minor, 4 seventh, 5 diminished */
+const BASS_KINDS = [
+  { k: 'C', name: 'counterbass', label: 'cb',   iv: [4] },
+  { k: 'B', name: 'bass',        label: 'bass', iv: [0] },
+  { k: 'M', name: 'major',       label: 'maj',  iv: [0, 4, 7] },
+  { k: 'm', name: 'minor',       label: 'min',  iv: [0, 3, 7] },
+  { k: '7', name: 'seventh',     label: '7',    iv: [0, 4, 10] },
+  { k: 'd', name: 'diminished',  label: 'dim',  iv: [0, 3, 9] },
+];
+const KIND_COLORS = ['#8fa8c8', '#6cc4b8', '#e8c46a', '#9d8fe0', '#e08a6a', '#d06aa8'];
+const pcName = pc => NOTE_NAMES[((pc % 12) + 12) % 12];
+const btn = p => ({ kind: Math.floor((p - 36) / 12), root: (p - 36) % 12 });
+const btnRow = (kind, root) => 36 + kind * 12 + (((root % 12) + 12) % 12);
+const btnValid = p => p >= 36 && p <= 107;
+function btnLabel(p) {
+  if (!btnValid(p)) return '—';
+  const { kind, root } = btn(p), r = pcName(root);
+  return kind === 4 ? r + '7' : r + ' ' + BASS_KINDS[kind].label;
+}
+// the notes a button sounds through the soundfont: single notes in 36-47, chord notes folded into 48-59
+function btnNotes(p) {
+  if (!btnValid(p)) return [];
+  const { kind, root } = btn(p);
+  if (kind <= 1) return [36 + (root + BASS_KINDS[kind].iv[0]) % 12];
+  return BASS_KINDS[kind].iv.map(i => 48 + (root + i) % 12);
+}
+function btnDescribe(p) {
+  if (!btnValid(p)) return 'not a button';
+  const { kind, root } = btn(p);
+  const notes = btnNotes(p).map(n => pcName(n % 12)).join(' ');
+  if (kind === 0) return `counterbass in the ${pcName(root)} column (sounds ${notes})`;
+  if (kind === 1) return `${pcName(root)} bass`;
+  return `${pcName(root)} ${BASS_KINDS[kind].name} chord (${notes})`;
+}
+const rowLabel = (pt, p) => pt === 'B' ? btnLabel(p) : noteName(p);
 const dynGain = v => Math.pow(Math.max(0, Math.min(127, v)) / 127, 2); // same curve as MIDI CC11
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const EPS = 1e-6;
@@ -310,13 +352,13 @@ let part = 'T';
 let tool = 'draw';
 let grid = 0.5;
 let zoomX = 64;          // px per beat
-const ROW_H = 14;        // px per semitone
+let ROW_H = 14;          // px per row (14 treble, 11 bass so more buttons fit)
 let selection = new Set();
 let playhead = 0;
 let lastLen = 1;
 let clipboard = null;
 
-const inRange = n => n.p >= RANGE[n.part][0] && n.p <= RANGE[n.part][1];
+const inRange = n => n.p >= RANGE[n.part][0] && n.p <= RANGE[n.part][1] && !n.flag;
 const snapRound = b => Math.round(b / grid) * grid;
 const snapFloor = b => Math.floor(b / grid + EPS) * grid;
 
@@ -387,7 +429,11 @@ function loadSong(obj) {
   s.bpm = clamp(Math.round(+obj.bpm || 120), 20, 400);
   s.beatsPerBar = [2, 3, 4, 6].includes(+obj.beatsPerBar) ? +obj.beatsPerBar : 4;
   s.notes = (obj.notes || []).filter(n => isFinite(n.p) && isFinite(n.s) && isFinite(n.l))
-    .map(n => ({ id: uid(), part: n.part === 'B' ? 'B' : 'T', p: clamp(Math.round(n.p), 0, 127), s: Math.max(0, +n.s), l: Math.max(1 / 64, +n.l) }));
+    .map(n => {
+      const o = { id: uid(), part: n.part === 'B' ? 'B' : 'T', p: clamp(Math.round(n.p), 0, 127), s: Math.max(0, +n.s), l: Math.max(1 / 64, +n.l) };
+      if (o.part === 'B' && n.flag) { o.flag = String(n.flag).slice(0, 120); }
+      return o;
+    });
   if (Array.isArray(obj.stops) && obj.stops.length) s.stops = obj.stops.filter(x => STOP_BY_PROG[x.p]).map(x => ({ t: Math.max(0, +x.t), p: +x.p }));
   if (Array.isArray(obj.dyn) && obj.dyn.length) s.dyn = obj.dyn.map(x => ({ t: Math.max(0, +x.t), v: clamp(Math.round(+x.v), 0, 127) }));
   song = s; selection.clear(); playhead = 0;
@@ -550,9 +596,10 @@ function stopVoices() {
 function preview(p, dur = 0.45, forPart = part) {
   if (!A.sf) return;
   ensureCtx();
-  const prog = forPart === 'B' ? BASS_PROG : stopAt(playhead);
   A.preview.gain.setValueAtTime(0.25 + 0.6 * dynGain(dynAt(playhead)), A.ctx.currentTime);
-  startVoice(prog, p, A.ctx.currentTime + 0.005, dur, A.preview);
+  const t = A.ctx.currentTime + 0.005;
+  if (forPart === 'B') btnNotes(p).forEach(k => startVoice(BASS_PROG, k, t, dur, A.preview));
+  else startVoice(stopAt(playhead), p, t, dur, A.preview);
 }
 
 /* ---------- loading the soundfont ---------- */
@@ -616,10 +663,10 @@ function schedule() {
     const t = P.t0 + (n.s - P.startBeat) * P.spb;
     if (t > horizon) break;
     P.idx++;
-    const prog = n.part === 'B' ? BASS_PROG : stopAt(n.s);
     let when = t, off = 0, dur = n.l * P.spb;
     if (n.s < P.startBeat) { off = (P.startBeat - n.s) * P.spb; when = P.t0; dur -= off; }
-    startVoice(prog, n.p, when, dur, A.dyn, off);
+    if (n.part === 'B') btnNotes(n.p).forEach(k => startVoice(BASS_PROG, k, when, dur, A.dyn, off));
+    else startVoice(stopAt(n.s), n.p, when, dur, A.dyn, off);
   }
 }
 function tick() {
@@ -697,7 +744,8 @@ function vLines(x, w, h, sx) {
 function noteColors(n, sel) {
   if (!inRange(n)) return sel ? ['#ff7d84', '#fff'] : [C.danger, '#ffb3b8'];
   if (n.part === 'T') return sel ? ['#fff6e0', C.accent] : ['#f1e6cf', '#b9a782'];
-  return sel ? ['#a6efe5', C.accent] : ['#6cc4b8', '#3c8a80'];
+  const kc = KIND_COLORS[btn(n.p).kind];
+  return sel ? ['#ffffff', C.accent] : [kc, 'rgba(0,0,0,.35)'];
 }
 function drawGrid() {
   const w = scroller.clientWidth, h = scroller.clientHeight;
@@ -708,7 +756,15 @@ function drawGrid() {
   const pTop = 127 - Math.floor(sy / ROW_H), pBot = 127 - Math.floor((sy + h) / ROW_H);
   for (let p = Math.min(127, pTop); p >= Math.max(0, pBot); p--) {
     const y = (127 - p) * ROW_H - sy;
-    const ok = p >= lo && p <= hi, blk = isBlack(p);
+    const ok = p >= lo && p <= hi;
+    if (part === 'B') {
+      const k = Math.floor((p - 36) / 12);
+      x.fillStyle = ok ? (k % 2 ? C.rowIn : C.rowInBlack) : C.rowOut;
+      x.fillRect(0, y, w, ROW_H);
+      if (ok && (p - 36) % 12 === 0 && p > 36) { x.fillStyle = 'rgba(255,255,255,.14)'; x.fillRect(0, y + ROW_H - 1, w, 1); }
+      continue;
+    }
+    const blk = isBlack(p);
     x.fillStyle = ok ? (blk ? C.rowInBlack : C.rowIn) : (blk ? C.rowOutBlack : C.rowOut);
     x.fillRect(0, y, w, ROW_H);
     if (p % 12 === 0) { x.fillStyle = C.cLine; x.fillRect(0, y + ROW_H - 1, w, 1); }
@@ -723,18 +779,14 @@ function drawGrid() {
   x.fillRect(0, Math.round(yHi) - 1, w, 2); x.fillRect(0, Math.round(yLo) - 1, w, 2);
   // stop tint strip at top of the range (treble only)
   const b0 = sx / zoomX, b1 = (sx + w) / zoomX;
-  // ghost notes of the other part
-  x.globalAlpha = 0.28;
+  // the other part, as faint ticks along the top edge so you can line the two sides up
+  x.fillStyle = part === 'T' ? 'rgba(108,196,184,.55)' : 'rgba(241,230,207,.5)';
   for (const n of song.notes) {
     if (n.part === part || n.s > b1 || n.s + n.l < b0) continue;
-    const nx = n.s * zoomX - sx, ny = (127 - n.p) * ROW_H - sy;
-    if (ny < -ROW_H || ny > h) continue;
-    x.strokeStyle = n.part === 'T' ? '#f1e6cf' : '#6cc4b8';
-    x.strokeRect(nx + 0.5, ny + 1.5, Math.max(2, n.l * zoomX - 1), ROW_H - 3);
+    x.fillRect(n.s * zoomX - sx, 0, Math.max(2, n.l * zoomX - 1), 3);
   }
-  x.globalAlpha = 1;
   // notes
-  x.font = '600 9.5px "JetBrains Mono", monospace'; x.textBaseline = 'middle';
+  x.font = `600 ${part === 'B' ? 8.5 : 9.5}px "JetBrains Mono", monospace`; x.textBaseline = 'middle';
   for (const n of song.notes) {
     if (n.part !== part || n.s > b1 || n.s + n.l < b0) continue;
     const nx = n.s * zoomX - sx, ny = (127 - n.p) * ROW_H - sy;
@@ -750,7 +802,12 @@ function drawGrid() {
       for (let k = -ROW_H; k < nw; k += 6) { x.beginPath(); x.moveTo(nx + k, ny + ROW_H); x.lineTo(nx + k + ROW_H, ny); x.stroke(); }
       x.restore();
     }
-    if (nw > 30) { x.fillStyle = inRange(n) ? 'rgba(20,18,24,.78)' : '#fff'; x.fillText(noteName(n.p), nx + 5, ny + ROW_H / 2 + 0.5); }
+    if (nw > 22) {
+      x.save(); x.beginPath(); x.rect(nx, ny, nw - 2, ROW_H); x.clip();
+      x.fillStyle = inRange(n) ? 'rgba(20,18,24,.8)' : '#fff';
+      x.fillText((n.flag ? '? ' : '') + rowLabel(n.part, n.p), nx + 4, ny + ROW_H / 2 + 0.5);
+      x.restore();
+    }
   }
   // selection rectangle
   if (drag && drag.type === 'rect') {
@@ -775,6 +832,7 @@ function drawKeys() {
   if (heldKey != null) active.add(heldKey);
   x.clearRect(0, 0, w, h);
   x.font = '700 9px "JetBrains Mono", monospace'; x.textBaseline = 'middle';
+  if (part === 'B') { drawButtonKeys(x, w, h, sy, active); return; }
   for (let p = 127; p >= 0; p--) {
     const y = (127 - p) * ROW_H - sy;
     if (y > h || y < -ROW_H) continue;
@@ -794,6 +852,27 @@ function drawKeys() {
   x.fillStyle = 'rgba(224,169,59,.8)';
   x.fillRect(0, Math.round((127 - hi) * ROW_H - sy) - 1, w, 2);
   x.fillRect(0, Math.round((128 - lo) * ROW_H - sy) - 1, w, 2);
+}
+function drawButtonKeys(x, w, h, sy, active) {
+  x.fillStyle = '#0f0e12'; x.fillRect(0, 0, w, h);
+  x.font = '700 8.5px "JetBrains Mono", monospace';
+  for (let p = 107; p >= 36; p--) {
+    const y = (127 - p) * ROW_H - sy;
+    if (y > h || y < -ROW_H) continue;
+    const { kind, root } = btn(p), on = active.has(p);
+    x.fillStyle = on ? C.accent : (kind % 2 ? '#24222b' : '#1d1c23');
+    x.fillRect(0, y, w, ROW_H);
+    x.fillStyle = KIND_COLORS[kind]; x.fillRect(0, y, 4, ROW_H);
+    x.beginPath(); x.arc(12, y + ROW_H / 2, 3, 0, Math.PI * 2);
+    x.fillStyle = on ? '#1a1305' : '#cfc8b8'; x.fill();
+    x.fillStyle = on ? '#1a1305' : (root === 0 ? '#ece7dc' : '#a39daf');
+    x.textAlign = 'left'; x.fillText(btnLabel(p), 19, y + ROW_H / 2 + 0.5);
+    if (root === 0 && p > 36) { x.fillStyle = 'rgba(255,255,255,.16)'; x.fillRect(0, y + ROW_H - 1, w, 1); }
+  }
+  // section names in the dead space above and below
+  x.fillStyle = 'rgba(224,169,59,.8)';
+  x.fillRect(0, Math.round((127 - 107) * ROW_H - sy) - 1, w, 2);
+  x.fillRect(0, Math.round((128 - 36) * ROW_H - sy) - 1, w, 2);
 }
 function drawRuler() {
   const w = scroller.clientWidth, h = $('#rulerCell').clientHeight - 1;
@@ -982,9 +1061,11 @@ scroller.addEventListener('pointerdown', e => {
 scroller.addEventListener('pointermove', e => {
   const { x, y, beat, pitch } = gridPos(e);
   const bpb = song.beatsPerBar;
-  $('#hover').textContent = `${noteName(pitch).padEnd(4)} · bar ${Math.floor(beat / bpb) + 1} beat ${(beat % bpb + 1).toFixed(2)}`;
+  const hit0 = !drag && hitNote(x, y);
+  const what = part === 'B' ? btnDescribe(pitch) : noteName(pitch);
+  $('#hover').textContent = (hit0 && hit0.n.flag ? `Check this chord: ${hit0.n.flag}. Drag it to the right button, or double-click to keep it.` : `${what} · bar ${Math.floor(beat / bpb) + 1} beat ${(beat % bpb + 1).toFixed(2)}`);
   if (!drag) {
-    const hit = hitNote(x, y);
+    const hit = hit0;
     scroller.style.cursor = tool === 'erase' ? 'cell' : hit ? (hit.edge ? 'ew-resize' : 'grab') : tool === 'draw' ? 'crosshair' : 'default';
     return;
   }
@@ -1004,7 +1085,7 @@ scroller.addEventListener('pointermove', e => {
     if (minS + db < 0) db = -minS;
     const minP = Math.min(...drag.orig.map(o => o.p)), maxP = Math.max(...drag.orig.map(o => o.p));
     dp = clamp(dp, -minP, 127 - maxP);
-    for (const o of drag.orig) { o.n.s = o.s + db; o.n.p = o.p + dp; }
+    for (const o of drag.orig) { o.n.s = o.s + db; o.n.p = o.p + dp; if (dp && o.n.flag) { o.n.flagWas = o.n.flag; delete o.n.flag; } else if (!dp && o.n.flagWas) { o.n.flag = o.n.flagWas; } }
     if (drag.anchor.p !== drag.lastP) { drag.lastP = drag.anchor.p; preview(drag.anchor.p, 0.25); }
     render(); return;
   }
@@ -1025,10 +1106,15 @@ scroller.addEventListener('pointermove', e => {
 function endDrag() {
   if (!drag) return;
   const d = drag; drag = null;
+  song.notes.forEach(n => delete n.flagWas);
   if (d.type !== 'rect') commit(d.before);
   render();
 }
 scroller.addEventListener('pointerup', endDrag);
+scroller.addEventListener('dblclick', e => {
+  const { x, y } = gridPos(e), hit = hitNote(x, y);
+  if (hit && hit.n.flag) { edit(() => { delete hit.n.flag; }); toast(`Kept ${btnLabel(hit.n.p)}`); }
+});
 scroller.addEventListener('pointercancel', endDrag);
 scroller.addEventListener('scroll', () => { updateSpacer(); render(); });
 $('#gridCell').addEventListener('wheel', e => {
@@ -1057,9 +1143,11 @@ $('#keysCell').addEventListener('wheel', e => { e.preventDefault(); scroller.scr
 (() => {
   const el = $('#keysCell');
   const keyAt = e => clamp(127 - Math.floor((e.clientY - el.getBoundingClientRect().top + scroller.scrollTop) / ROW_H), 0, 127);
-  el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); heldKey = keyAt(e); preview(heldKey, 0.6); drawKeys(); });
+  el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); heldKey = keyAt(e); if (part === 'B' && !btnValid(heldKey)) { heldKey = null; return; } preview(heldKey, 0.6); drawKeys(); });
   el.addEventListener('pointermove', e => {
-    if (heldKey == null) return; const k = keyAt(e);
+    const k = keyAt(e);
+    $('#hover').textContent = part === 'B' ? btnDescribe(k) : noteName(k);
+    if (heldKey == null || (part === 'B' && !btnValid(k))) return;
     if (k !== heldKey) { heldKey = k; preview(k, 0.6); drawKeys(); }
   });
   const up = () => { heldKey = null; drawKeys(); };
@@ -1144,6 +1232,7 @@ $('#keysCell').addEventListener('wheel', e => { e.preventDefault(); scroller.scr
 function setPart(p) {
   if (p === part) return;
   part = p; selection.clear();
+  ROW_H = p === 'B' ? 11 : 14; updateSpacer();
   document.querySelectorAll('#partSeg button').forEach(b => b.classList.toggle('on', b.dataset.part === p));
   centerOnRange(); render();
 }
@@ -1152,18 +1241,19 @@ function setTool(t) {
   document.querySelectorAll('#toolSeg button').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
 }
 function centerOnRange() {
-  const [lo, hi] = RANGE[part];
+  const [lo, hi] = part === 'B' ? [48, 83] : RANGE[part]; // bass: centre on bass, major and minor rows
   scroller.scrollTop = ((127 - (lo + hi) / 2) * ROW_H) - scroller.clientHeight / 2;
 }
 function deleteSelection() { if (!selection.size) return; edit(() => removeNotes([...selection])); }
 function copySelection() {
   const sel = selectedNotes(); if (!sel.length) return false;
   const s0 = Math.min(...sel.map(n => n.s));
-  clipboard = sel.map(n => ({ p: n.p, s: n.s - s0, l: n.l }));
+  clipboard = sel.map(n => ({ p: n.p, s: n.s - s0, l: n.l, part: n.part }));
   toast(`Copied ${sel.length} note${sel.length > 1 ? 's' : ''}`); return true;
 }
 function paste() {
   if (!clipboard) return;
+  if (clipboard[0].part !== part) { toast(`Those are ${clipboard[0].part === 'B' ? 'bass buttons' : 'treble notes'}. Switch parts to paste them.`); return; }
   const at = snapFloor(playhead);
   edit(() => {
     const added = clipboard.map(c => ({ id: uid(), part, p: c.p, s: at + c.s, l: c.l }));
@@ -1181,6 +1271,16 @@ function duplicate() {
 }
 function transpose(dp) {
   const sel = selectedNotes(); if (!sel.length) return;
+  if (part === 'B') {
+    // ↑↓ walks the root within the same row; Shift+↑↓ (±12) moves to the next row type
+    if (Math.abs(dp) === 12) {
+      if (sel.some(n => !btnValid(n.p + dp))) return;
+      edit(() => sel.forEach(n => { n.p += dp; delete n.flag; }));
+    } else {
+      edit(() => sel.forEach(n => { if (!btnValid(n.p)) return; const b = btn(n.p); n.p = btnRow(b.kind, b.root + dp); delete n.flag; }));
+    }
+    preview(sel[0].p, 0.3); return;
+  }
   if (sel.some(n => n.p + dp < 0 || n.p + dp > 127)) return;
   edit(() => sel.forEach(n => n.p += dp));
   preview(sel[0].p, 0.25);
@@ -1192,7 +1292,7 @@ function nudge(db) {
 }
 function outOfRange() { return song.notes.filter(n => !inRange(n)); }
 function fitByOctave() {
-  const targets = outOfRange();
+  const targets = outOfRange().filter(n => n.part === 'T');
   if (!targets.length) return;
   edit(() => targets.forEach(n => {
     const [lo, hi] = RANGE[n.part];
@@ -1210,13 +1310,22 @@ function selectOutOfRange() {
   scroller.scrollLeft = Math.max(0, n.s * zoomX - 80);
   scroller.scrollTop = (127 - n.p) * ROW_H - scroller.clientHeight / 2;
   setTool('select'); render();
-  toast(`${bad.length} red note${bad.length > 1 ? 's' : ''} selected. Drag them or use ↑ ↓ (Shift = octave).`);
+  toast(part === 'B'
+    ? `${bad.length} chord${bad.length > 1 ? 's' : ''} to check. Hover one to see why; drag it to the right button or double-click to keep it.`
+    : `${bad.length} red note${bad.length > 1 ? 's' : ''} selected. Drag them or use ↑ ↓ (Shift = octave).`);
+}
+function acceptGuesses() {
+  const f = song.notes.filter(n => n.part === 'B' && n.flag && btnValid(n.p));
+  if (!f.length) return;
+  edit(() => f.forEach(n => delete n.flag));
+  toast(`Kept ${f.length} chord guess${f.length > 1 ? 'es' : ''}`);
 }
 function updateWarnings() {
   const bad = outOfRange(), t = bad.filter(n => n.part === 'T').length, b = bad.length - t;
   $('#warn').classList.toggle('show', bad.length > 0);
-  $('#fixBtn').style.display = bad.length ? 'inline-flex' : 'none';
-  $('#warnText').textContent = [t ? `${t} treble` : '', b ? `${b} bass` : ''].filter(Boolean).join(' · ') + ' out of range';
+  $('#fixBtn').style.display = t ? 'inline-flex' : 'none';
+  $('#acceptBtn').style.display = b ? 'inline-flex' : 'none';
+  $('#warnText').textContent = [t ? `${t} out of range` : '', b ? `${b} chord${b > 1 ? 's' : ''} to check` : ''].filter(Boolean).join(' · ');
   const nt = song.notes.filter(n => n.part === 'T').length;
   $('#counts').textContent = `${nt} treble · ${song.notes.length - nt} bass · ${song.stops.length} stop${song.stops.length > 1 ? 's' : ''}`;
 }
@@ -1309,7 +1418,7 @@ function importMidiDialog(buf, filename) {
   const bpm = m.tempos.length ? Math.round(60000000 / m.tempos[0].us) : 120;
   const body = document.createElement('div');
   body.innerHTML = `
-    <p>Choose which part each channel becomes. Notes keep their pitch: anything outside <b>43–76</b> (treble) or <b>36–59</b> (bass) shows up <span class="pill-red">red</span> so you can drag it into range.</p>
+    <p>Choose which part each channel becomes. Treble notes keep their pitch, and anything outside <b>43–76</b> shows up <span class="pill-red">red</span>. Bass notes become <b>buttons</b>: low notes become bass buttons, and chords in any inversion become one chord button (E-G-C = C major). A chord written as a single note gets its major/minor/7/dim type from the harmony around it.</p>
     <table><thead><tr><th>Track / channel</th><th>Notes</th><th>Range</th><th>Becomes</th></tr></thead><tbody>
     ${srcs.map(s => `<tr><td>${esc(s.name || 'Track ' + (s.track + 1))} <span style="color:var(--muted)">· ch ${s.ch + 1}${s.program != null ? ' · prog ' + s.program : ''}</span></td>
       <td class="mono">${s.notes.length}</td><td class="mono">${noteName(s.lo)}–${noteName(s.hi)}</td>
@@ -1317,14 +1426,28 @@ function importMidiDialog(buf, filename) {
     </tbody></table>
     ${ours ? `<label class="opt"><input type="checkbox" id="impStops" checked> Rebuild stop changes from the stop tracks (this looks like an Accordion Studio export)</label>` : ''}
     ${hasCC ? `<label class="opt"><input type="checkbox" id="impDyn" checked> Use expression (CC11/CC7) as bellows dynamics</label>` : ''}
+    <div id="splitRow" style="margin:10px 0;line-height:2.1">Bass chord hits: single bass-channel notes at or above
+      <select id="impSplit" style="width:auto"><option value="">none</option>${Array.from({ length: 41 }, (_, i) => 36 + i).map(p => `<option value="${p}">${noteName(p)}</option>`).join('')}</select>
+      become <b>chord buttons</b>. Lower ones become bass buttons. <span style="color:var(--muted)">(Pick “none” if your file writes full chords.)</span></div>
     <label class="opt"><input type="checkbox" id="impQuant"> Snap note starts and lengths to the current grid (${$('#gridSel').selectedOptions[0].text})</label>
     <div class="stats"><span>Tempo <b>${bpm} BPM</b>${m.tempos.length > 1 ? ' (first of ' + m.tempos.length + ' tempo changes)' : ''}</span><span>File <b>${esc(filename)}</b></span></div>
     <p style="color:var(--muted);font-size:12px">This replaces the current song. You can undo it with Ctrl+Z.</p>`;
-  body.querySelectorAll('select').forEach(sel => sel.value = guess.get(sel.dataset.key) || 'T');
+  const roleSelects = [...body.querySelectorAll('select[data-key]')];
+  roleSelects.forEach(sel => sel.value = guess.get(sel.dataset.key) || 'T');
+  const splitSel = body.querySelector('#impSplit');
+  const refreshSplit = () => {
+    const bassSrcs = srcs.filter(s => roleSelects.find(x => x.dataset.key === s.key).value === 'B');
+    body.querySelector('#splitRow').style.display = bassSrcs.length ? 'block' : 'none';
+    const t = ours ? 48 : guessSplit(bassSrcs.flatMap(s => s.notes));
+    splitSel.value = t == null ? '' : String(clamp(t, 36, 76));
+  };
+  roleSelects.forEach(sel => sel.addEventListener('change', refreshSplit));
+  refreshSplit();
   modal('Import MIDI', body, [
     { label: 'Cancel' },
     { label: 'Import', primary: true, onClick: () => {
-      const roles = {}; body.querySelectorAll('select').forEach(s => roles[s.dataset.key] = s.value);
+      const roles = {}; roleSelects.forEach(s => roles[s.dataset.key] = s.value);
+      const split = splitSel.value === '' ? null : +splitSel.value;
       const q = body.querySelector('#impQuant').checked;
       const rebuild = ours && body.querySelector('#impStops') && body.querySelector('#impStops').checked;
       const useDyn = hasCC && body.querySelector('#impDyn').checked;
@@ -1333,19 +1456,26 @@ function importMidiDialog(buf, filename) {
       s.title = (filename || 'Imported').replace(/\.(mid|midi)$/i, '').slice(0, 80);
       s.bpm = clamp(bpm, 20, 400);
       if (m.tsig && [2, 3, 4, 6].includes(m.tsig)) s.beatsPerBar = m.tsig;
-      const seen = new Map(); const stopNotes = [];
+      const seen = new Map(); const stopNotes = [], bassRaw = [], context = [];
+      const addNote = (role, pp, st, l) => {
+        const k = role + ':' + pp + ':' + st.toFixed(4);
+        if (seen.has(k)) { const o = seen.get(k); o.l = Math.max(o.l, l); return o; }
+        const note = { id: uid(), part: role, p: pp, s: st, l };
+        seen.set(k, note); s.notes.push(note); return note;
+      };
       for (const src of srcs) {
         const role = roles[src.key]; if (role === 'X') continue;
         for (const n of src.notes) {
           let st = n.s, l = n.l;
           if (q) { st = Math.round(st / grid) * grid; l = Math.max(grid, Math.round(l / grid) * grid); }
-          const k = role + ':' + n.p + ':' + st.toFixed(4);
-          if (seen.has(k)) { const o = seen.get(k); o.l = Math.max(o.l, l); continue; }
-          const note = { id: uid(), part: role, p: n.p, s: st, l };
-          seen.set(k, note); s.notes.push(note);
-          if (rebuild && role === 'T' && PROG_NAMES.indexOf(src.name) < 5) stopNotes.push({ s: st, p: PROG_NAMES.indexOf(src.name) });
+          context.push({ p: n.p, s: st, l });
+          if (role === 'B') { bassRaw.push({ p: n.p, s: st, l }); continue; }
+          addNote('T', n.p, st, l);
+          if (rebuild && PROG_NAMES.indexOf(src.name) < 5) stopNotes.push({ s: st, p: PROG_NAMES.indexOf(src.name) });
         }
       }
+      const conv = bassToButtons(bassRaw, context, split);
+      for (const b of conv.buttons) { const o = addNote('B', b.p, b.s, b.l); if (b.flag) o.flag = b.flag; }
       if (rebuild && stopNotes.length) {
         stopNotes.sort((a, b) => a.s - b.s);
         s.stops = [{ t: 0, p: stopNotes[0].p }];
@@ -1362,11 +1492,115 @@ function importMidiDialog(buf, filename) {
       undoStack.push(before); redoStack.length = 0;
       changed();
       scroller.scrollLeft = 0; centerOnRange();
-      const bad = outOfRange().length;
-      toast(bad ? `Imported. ${bad} note${bad > 1 ? 's are' : ' is'} out of range (red).` : 'Imported. Every note is in range.');
+      const badT = outOfRange().filter(n => n.part === 'T').length, st = conv.stats;
+      toast(`Imported. Bass: ${st.bass} bass + ${st.chords} chord buttons${st.flagged ? `, ${st.flagged} to check` : ''}.` + (badT ? ` ${badT} treble note${badT > 1 ? 's' : ''} out of range.` : ''));
     } },
   ]);
 }
+/* =========================================================
+   Chord detection: MIDI bass notes -> Stradella buttons
+   ========================================================= */
+// shapes we recognise (full chords); the button itself may play fewer notes
+const CHORD_SHAPES = { 2: [0, 4, 7], 3: [0, 3, 7], 4: [0, 4, 7, 10], 5: [0, 3, 6, 9] };
+const CHORD_NEEDS = { 2: [4], 3: [3], 4: [4, 10], 5: [3] };
+const pcList = ps => [...new Set(ps.map(p => ((p % 12) + 12) % 12))].sort((a, b) => a - b).map(pcName).join(' ');
+// any voicing / inversion: E-G-C, G-C-E and C-E-G all give C major
+function recogniseChord(pitches) {
+  const pcs = [...new Set(pitches.map(p => p % 12))];
+  const low = Math.min(...pitches) % 12;
+  let best = null;
+  for (const k of [2, 3, 4, 5]) for (let r = 0; r < 12; r++) {
+    const T = CHORD_SHAPES[k], rel = pcs.map(pc => (pc - r + 12) % 12);
+    const hit = rel.filter(x => T.includes(x)).length, extra = rel.length - hit, lack = T.length - hit;
+    const hasRoot = rel.includes(0);
+    const score = hit * 3 - extra * 4 - lack + (hasRoot ? 2 : 0) + (r === low ? 1 : 0);
+    if (!best || score > best.score) {
+      best = { r, k, score, exact: extra === 0 && hasRoot && CHORD_NEEDS[k].every(x => rel.includes(x)) };
+    }
+  }
+  return best;
+}
+// a single "chord hit" note (oom-PAH): root is known, the type comes from what else is sounding
+function chordFromHarmony(root, s, l, context) {
+  const w = new Float64Array(12);
+  const add = (a, b) => { for (const n of context) { const ov = Math.min(b, n.s + n.l) - Math.max(a, n.s); if (ov > 0) w[n.p % 12] += ov; } };
+  add(s, s + l);
+  if (w.reduce((a, b) => a + b, 0) - w[root] < 1e-3) add(s - 0.5, s + l + 0.5);
+  const W = i => w[(root + i) % 12];
+  const cand = [
+    [2, W(4) - W(3)],
+    [3, W(3) - W(4)],
+    [4, W(10) > 0 ? W(4) + W(10) - W(3) : -Infinity],
+    [5, W(3) > 0 && W(6) + W(9) > 0 ? W(3) + W(6) + W(9) - W(4) - W(7) : -Infinity],
+  ].sort((a, b) => b[1] - a[1]);
+  const [best, second] = cand;
+  const sure = best[1] > 0.05 && best[1] - second[1] > 0.02;
+  return { k: best[0], sure };
+}
+// Otsu split between the low "oom" notes and the higher "pah" chord hits
+function guessSplit(bassNotes) {
+  if (!bassNotes.length) return null;
+  const groups = groupOnsets(bassNotes);
+  const chordy = groups.filter(g => new Set(g.map(n => n.p % 12)).size >= 3);
+  if (chordy.length >= groups.length * 0.25) {
+    // chords are written out; anything in the chords' register counts as a chord tone
+    return Math.min(...chordy.map(g => Math.min(...g.map(n => n.p))));
+  }
+  const vals = groups.filter(g => new Set(g.map(n => n.p % 12)).size === 1).map(g => Math.min(...g.map(n => n.p)));
+  const uniq = [...new Set(vals)].sort((a, b) => a - b);
+  if (uniq.length < 2) return null;
+  let best = null;
+  for (const t of uniq.slice(1)) {
+    const lo = vals.filter(v => v < t), hi = vals.filter(v => v >= t);
+    const m0 = lo.reduce((a, b) => a + b, 0) / lo.length, m1 = hi.reduce((a, b) => a + b, 0) / hi.length;
+    const between = lo.length * hi.length * (m1 - m0) ** 2;
+    if (!best || between > best.between) best = { t, between, gap: m1 - m0, lo: lo.length, hi: hi.length };
+  }
+  // only split if there really are two registers (an octave or so apart, both used a fair amount)
+  return best && best.gap >= 9 && Math.min(best.lo, best.hi) >= vals.length * 0.15 ? best.t : null;
+}
+function groupOnsets(notes) {
+  const sorted = notes.slice().sort((a, b) => a.s - b.s), groups = [];
+  for (const n of sorted) {
+    const g = groups[groups.length - 1];
+    if (g && n.s - g[0].s <= 0.06) g.push(n); else groups.push([n]);
+  }
+  return groups;
+}
+function bassToButtons(bassNotes, context, split) {
+  const out = [], stats = { bass: 0, chords: 0, flagged: 0 };
+  const push = (s, l, kind, root, flag) => {
+    const o = { part: 'B', s, l, p: btnRow(kind, root) };
+    if (flag) { o.flag = flag; stats.flagged++; }
+    if (kind <= 1) stats.bass++; else stats.chords++;
+    out.push(o);
+  };
+  for (const g of groupOnsets(bassNotes)) {
+    const s = g[0].s;
+    const low = split == null ? g : g.filter(n => n.p < split);
+    let high = split == null ? [] : g.filter(n => n.p >= split);
+    if (low.length) {
+      const pcs = new Set(low.map(n => n.p % 12));
+      if (split == null && pcs.size >= 2) high = low; // no split: a stack of notes is a chord
+      else {
+        const lowest = low.reduce((a, b) => a.p <= b.p ? a : b);
+        push(s, Math.max(...low.map(n => n.l)), 1, lowest.p % 12);
+        if (pcs.size >= 2) high = high.concat(low.filter(n => n !== lowest && n.p % 12 !== lowest.p % 12));
+      }
+    }
+    if (!high.length) continue;
+    const l = Math.max(...high.map(n => n.l)), ps = high.map(n => n.p);
+    if (new Set(ps.map(p => p % 12)).size >= 2) {
+      const r = recogniseChord(ps);
+      push(s, l, r.k, r.r, r.exact ? null : `${pcList(ps)} has no exact button, closest is ${btnLabel(btnRow(r.k, r.r))}`);
+    } else {
+      const root = ps[0] % 12, q = chordFromHarmony(root, s, l, context);
+      push(s, l, q.k, root, q.sure ? null : `only ${pcName(root)} is written and the harmony doesn't settle major or minor, guessed ${btnLabel(btnRow(q.k, root))}`);
+    }
+  }
+  return { buttons: out, stats };
+}
+
 function simplifyDyn(pts) {
   pts.sort((a, b) => a.t - b.t);
   const dedup = [];
@@ -1418,8 +1652,8 @@ function buildMidi() {
   for (const n of song.notes) {
     const ch = n.part === 'B' ? BASS_PROG : stopAt(n.s);
     const s = T(n.s), e = Math.max(s + 1, T(n.s + n.l));
-    ev(ch, s, 5, [0x90 | ch, n.p, 100]);
-    ev(ch, e, 4, [0x80 | ch, n.p, 0]);
+    const keys = n.part === 'B' ? btnNotes(n.p) : [n.p];
+    for (const k of keys) { ev(ch, s, 5, [0x90 | ch, k, 100]); ev(ch, e, 4, [0x80 | ch, k, 0]); }
   }
   const chunks = [];
   const hdr = [0x4D, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, tracks.length, (PPQ >> 8) & 255, PPQ & 255];
@@ -1438,18 +1672,22 @@ function buildMidi() {
   return out;
 }
 // Roblox string:  PA1|<bpm>|<title>|<events>
-//   S<ms>:<program>        stop change (0 Bandoneon, 1 Bassoon, 2 Clarinet, 3 Master, 4 Musette)
-//   D<ms>:<0-127>          bellows point (ramp linearly to the next D)
-//   T<ms>:<note>:<lenMs>   treble note (43-76)
-//   B<ms>:<note>:<lenMs>   bass note (36-59)
+//   S<ms>:<program>              stop change (0 Bandoneon, 1 Bassoon, 2 Clarinet, 3 Master, 4 Musette)
+//   D<ms>:<0-127>                bellows point (ramp linearly to the next D)
+//   T<ms>:<note>:<lenMs>         treble note (43-76)
+//   B<ms>:<root>:<type>:<lenMs>  bass button. root 0-11 (C=0). type C counterbass, B bass, M major, m minor, 7 seventh, d diminished
 function buildString() {
   const ms = b => Math.round(b * 60000 / song.bpm);
   const evs = [];
   song.stops.forEach(s => evs.push([ms(s.t), 0, `S${ms(s.t)}:${s.p}`]));
   song.dyn.forEach(d => evs.push([ms(d.t), 1, `D${ms(d.t)}:${d.v}`]));
   song.notes.slice().sort((a, b) => a.s - b.s || a.p - b.p).forEach(n => {
-    const t = ms(n.s);
-    evs.push([t, n.part === 'B' ? 2 : 3, `${n.part}${t}:${n.p}:${Math.max(1, ms(n.s + n.l) - t)}`]);
+    const t = ms(n.s), len = Math.max(1, ms(n.s + n.l) - t);
+    if (n.part === 'B') {
+      if (!btnValid(n.p)) return;
+      const b = btn(n.p);
+      evs.push([t, 2, `B${t}:${b.root}:${BASS_KINDS[b.kind].k}:${len}`]);
+    } else evs.push([t, 3, `T${t}:${n.p}:${len}`]);
   });
   evs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const title = song.title.replace(/[|;:\r\n]/g, ' ').trim();
@@ -1462,11 +1700,18 @@ function parseString(str) {
   const obj = { title: m[2] || 'Untitled', bpm, notes: [], stops: [], dyn: [] };
   for (const raw of m[3].split(';')) {
     const e = raw.trim(); if (!e) continue;
-    const k = e[0], f = e.slice(1).split(':').map(Number);
+    const k = e[0], raw2 = e.slice(1).split(':');
+    if (k === 'B' && raw2.length === 4) {
+      const kind = BASS_KINDS.findIndex(x => x.k === raw2[2]);
+      const t = +raw2[0], root = +raw2[1], len = +raw2[3];
+      if (kind >= 0 && isFinite(t) && isFinite(root) && isFinite(len)) obj.notes.push({ part: 'B', s: beat(t), p: btnRow(kind, root), l: beat(len) });
+      continue;
+    }
+    const f = raw2.map(Number);
     if (f.some(v => !isFinite(v))) continue;
     if (k === 'S') obj.stops.push({ t: beat(f[0]), p: f[1] });
     else if (k === 'D') obj.dyn.push({ t: beat(f[0]), v: f[1] });
-    else if (k === 'T' || k === 'B') obj.notes.push({ part: k, s: beat(f[0]), p: f[1], l: beat(f[2]) });
+    else if (k === 'T') obj.notes.push({ part: k, s: beat(f[0]), p: f[1], l: beat(f[2]) });
   }
   // snap to a fine grid to remove ms rounding
   const sn = v => Math.round(v * 96) / 96;
@@ -1483,9 +1728,10 @@ function download(data, name, type) {
 function rangeGuard(next) {
   const bad = outOfRange();
   if (!bad.length) { next(); return; }
-  modal('Some notes are out of range', `<p><span class="pill-red">${bad.length} note${bad.length > 1 ? 's' : ''}</span> sit outside the accordion's range. The soundfont won't play them, and the Roblox accordion has no key or button for them.</p><p>You can fix them first, or export anyway.</p>`, [
+  const bt = bad.filter(n => n.part === 'T').length, bb = bad.length - bt;
+  modal('Some notes need attention', `${bt ? `<p><span class="pill-red">${bt} treble note${bt > 1 ? 's' : ''}</span> sit outside 43–76. The soundfont won't play them and the Roblox keyboard has no key for them.</p>` : ''}${bb ? `<p><span class="pill-red">${bb} bass chord${bb > 1 ? 's' : ''}</span> were guessed. They will export as the button they show now.</p>` : ''}<p>You can check them first, or export anyway.</p>`, [
     { label: 'Export anyway', onClick: next },
-    { label: 'Fit all by octave', onClick: () => { fitByOctave(); next(); } },
+    { label: 'Export anyway (fit treble)', onClick: () => { fitByOctave(); next(); } },
     { label: 'Show me', primary: true, onClick: selectOutOfRange },
   ]);
 }
@@ -1502,7 +1748,7 @@ function exportString() {
     body.innerHTML = `<p>Paste this into your Roblox accordion (for example into a <code>StringValue</code>). All times are in milliseconds.</p>
       <textarea readonly spellcheck="false"></textarea>
       <div class="stats"><span>Length <b>${str.length.toLocaleString()}</b> chars</span><span>Treble <b>${nt}</b></span><span>Bass <b>${song.notes.length - nt}</b></span><span>Stops <b>${song.stops.length}</b></span><span>Bellows points <b>${song.dyn.length}</b></span></div>
-      <p style="color:var(--muted);font-size:12px;margin-top:0">Format: <code>PA1|bpm|title|</code> then events separated by <code>;</code> &nbsp;<code>S</code>ms:stop · <code>D</code>ms:bellows 0–127 · <code>T</code>ms:note:length · <code>B</code>ms:note:length</p>`;
+      <p style="color:var(--muted);font-size:12px;margin-top:0">Format: <code>PA1|bpm|title|</code> then events separated by <code>;</code> &nbsp;<code>S</code>ms:stop · <code>D</code>ms:bellows 0–127 · <code>T</code>ms:note:length · <code>B</code>ms:root:type:length (type C/B/M/m/7/d)</p>`;
     body.querySelector('textarea').value = str;
     modal('Roblox string', body, [
       { label: 'Download .txt', onClick: () => { download(str, slug() + '.txt', 'text/plain'); return false; } },
@@ -1517,7 +1763,7 @@ async function copyText(str, ta) {
 }
 function importStringDialog() {
   const body = document.createElement('div');
-  body.innerHTML = `<p>Paste a string exported from Accordion Studio to edit it again.</p><textarea spellcheck="false" placeholder="PA1|120|My song|S0:3;D0:96;T0:60:500;…"></textarea>`;
+  body.innerHTML = `<p>Paste a string exported from Accordion Studio to edit it again.</p><textarea spellcheck="false" placeholder="PA1|120|My song|S0:3;D0:96;B0:0:B:500;T0:60:500;…"></textarea>`;
   modal('Paste Roblox string', body, [
     { label: 'Cancel' },
     { label: 'Load', primary: true, onClick: () => {
@@ -1563,7 +1809,7 @@ let toastT = 0;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); }
 function helpModal() {
   modal('How it works', `
-    <p><b>Treble</b> is the keyboard (MIDI 43–76) and <b>Bass</b> is the button side (MIDI 36–59). Switch between them with the toggle or <kbd>Tab</kbd>. The other part shows faintly in the background.</p>
+    <p><b>Treble</b> is the keyboard (MIDI 43–76). <b>Bass</b> is the 72 buttons: 12 roots × counterbass, bass, major, minor, 7th and dim rows. Switch between them with the toggle or <kbd>Tab</kbd>. In Bass, <kbd>↑</kbd><kbd>↓</kbd> change the root and <kbd>Shift</kbd>+<kbd>↑</kbd><kbd>↓</kbd> change the row (major → minor…). <span class="pill-red">Red</span> buttons are chord guesses to check. Hover one to see why, then drag it to the right button or double-click to keep it.</p>
     <p><b>Stops</b> apply to the treble. Only one can be on at a time, like a real register switch. Move the playhead (click the bar ruler), then click a stop to change register from that point on.</p>
     <p><b>Bellows</b> is the dynamics lane at the bottom. Click to add points and drag them. The volume ramps smoothly between points. It exports as CC11 in the MIDI and as <code>D</code> events in the Roblox string.</p>
     <p>Notes outside the range are <span class="pill-red">red</span>. Drag them back into the bright rows, or use <b>Fit by octave</b>.</p>
@@ -1608,6 +1854,7 @@ $('#vol').addEventListener('input', e => { if (A.master) A.master.gain.value = +
 $('#playBtn').addEventListener('click', togglePlay);
 $('#warn').addEventListener('click', selectOutOfRange);
 $('#fixBtn').addEventListener('click', fitByOctave);
+$('#acceptBtn').addEventListener('click', acceptGuesses);
 document.querySelectorAll('#partSeg button').forEach(b => b.addEventListener('click', () => setPart(b.dataset.part)));
 document.querySelectorAll('#toolSeg button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
 $('#sfLoadBtn').addEventListener('click', () => pickFile('.sf2', async f => useSoundfont(await f.arrayBuffer(), f.name)));
